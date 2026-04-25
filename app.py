@@ -1,199 +1,83 @@
 from flask import Flask, request
 import requests
 from bs4 import BeautifulSoup
-import firebase_admin
-from firebase_admin import credentials, firestore
 import urllib3
 
-# 關閉 SSL 警告（非必要，但可以讓訊息乾淨一點）
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
 
-# 初始化 Firebase（避免重複初始化）
-if not firebase_admin._apps:
-    cred = credentials.Certificate("serviceAccountKey.json")
-    firebase_admin.initialize_app(cred)
-
 
 @app.route("/movie")
 def movie():
-    """爬取開眼電影網近期上映電影，寫入 Firestore"""
+    """爬取開眼電影網近期上映電影，直接顯示在網頁上"""
     
     url = "http://www.atmovies.com.tw/movie/next/"
-    
-    # 發送請求（若遇到 SSL 錯誤可加上 verify=False）
     Data = requests.get(url, verify=False)
     Data.encoding = "utf-8"
-    
-    # 解析 HTML
     sp = BeautifulSoup(Data.text, "html.parser")
     result = sp.select(".filmListAllX li")
-    
-    # 取得網站最後更新時間
     lastUpdate = sp.find("div", class_="smaller09").text[5:]
-    
-    # 連線 Firestore
-    db = firestore.client()
-    
-    # 逐一爬取每部電影
-    for item in result:
-        # 海報圖片網址
-        picture = item.find("img").get("src").replace(" ", "")
-        
-        # 電影名稱
-        title = item.find("div", class_="filmtitle").text
-        
-        # 電影 ID（用來當作 Firestore 的文件 ID）
-        movie_id = item.find("div", class_="filmtitle").find("a").get("href").replace("/", "").replace("movie", "")
-        
-        # 電影介紹頁網址
-        hyperlink = "http://www.atmovies.com.tw" + item.find("div", class_="filmtitle").find("a").get("href")
-        
-        # 上映日期與片長（原始字串處理）
-        show = item.find("div", class_="runtime").text.replace("上映日期：", "")
-        show = show.replace("片長：", "")
-        show = show.replace("分", "")
-        
-        showDate = show[0:10]      # 上映日期
-        showLength = show[13:]     # 片長
-        
-        # 準備寫入的資料
-        doc = {
-            "title": title,
-            "picture": picture,
-            "hyperlink": hyperlink,
-            "showDate": showDate,
-            "showLength": showLength,
-            "lastUpdate": lastUpdate
-        }
-        
-        # 寫入 Firestore
-        doc_ref = db.collection("電影").document(movie_id)
-        doc_ref.set(doc)
-    
-    # 回傳結果頁面
-    return f"""
+
+    # 開始產生 HTML 結果
+    html = f"""
     <!DOCTYPE html>
     <html lang="zh-TW">
     <head>
         <meta charset="UTF-8">
-        <title>爬蟲完成</title>
+        <title>近期上映電影</title>
         <style>
             body {{
                 font-family: 'Microsoft JhengHei', Arial, sans-serif;
-                text-align: center;
-                padding: 50px;
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 min-height: 100vh;
+                padding: 40px;
                 margin: 0;
             }}
             .container {{
-                background: white;
-                border-radius: 20px;
-                padding: 40px;
-                max-width: 500px;
+                max-width: 900px;
                 margin: 0 auto;
-                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             }}
-            h1 {{ color: #667eea; }}
-            p {{ color: #333; margin: 20px 0; }}
-            a {{
-                display: inline-block;
-                margin: 10px;
-                padding: 10px 20px;
-                background: #667eea;
+            h1 {{
                 color: white;
-                text-decoration: none;
-                border-radius: 50px;
-                transition: 0.3s;
+                text-align: center;
+                margin-bottom: 10px;
             }}
-            a:hover {{ background: #764ba2; transform: translateY(-2px); }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>✅ 爬蟲完成！</h1>
-            <p>近期上映電影已爬蟲及存檔完畢</p>
-            <p>📅 網站最近更新日期：{lastUpdate}</p>
-            <br>
-            <a href="/">🏠 回首頁</a>
-            <a href="/search.html">🔍 查詢電影</a>
-        </div>
-    </body>
-    </html>
-    """
-
-
-@app.route("/search")
-def search():
-    """查詢電影（支援關鍵字）"""
-    
-    keyword = request.args.get("keyword", "")
-    
-    if not keyword:
-        return """
-        <!DOCTYPE html>
-        <html>
-        <head><meta charset="UTF-8"><title>錯誤</title></head>
-        <body style="text-align:center; padding:50px;">
-            <h1>❌ 請輸入查詢關鍵字</h1>
-            <a href="/search.html">返回查詢頁面</a>
-        </body>
-        </html>
-        """
-    
-    db = firestore.client()
-    docs = db.collection("電影").get()
-    
-    # 開始產生結果頁面
-    html = """
-    <!DOCTYPE html>
-    <html lang="zh-TW">
-    <head>
-        <meta charset="UTF-8">
-        <title>查詢結果</title>
-        <style>
-            body {
-                font-family: 'Microsoft JhengHei', Arial, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                padding: 40px;
-                margin: 0;
-            }
-            .container {
-                max-width: 800px;
-                margin: 0 auto;
-            }
-            .result-card {
+            .update-info {{
+                color: white;
+                text-align: center;
+                margin-bottom: 30px;
+                opacity: 0.9;
+            }}
+            .movie-card {{
                 background: white;
                 border-radius: 15px;
                 padding: 20px;
                 margin-bottom: 20px;
+                display: flex;
+                gap: 20px;
                 box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-            }
-            .result-card h3 {
+            }}
+            .movie-pic img {{
+                width: 120px;
+                border-radius: 10px;
+            }}
+            .movie-info {{
+                flex: 1;
+            }}
+            .movie-title {{
                 color: #667eea;
                 margin-bottom: 10px;
-            }
-            .result-card p {
+            }}
+            .movie-detail {{
+                color: #555;
                 margin: 8px 0;
-                color: #333;
-            }
-            .result-card a {
-                color: #667eea;
+            }}
+            .movie-link a {{
+                color: #ff6b6b;
                 text-decoration: none;
-            }
-            .result-card a:hover {
-                text-decoration: underline;
-            }
-            .no-result {
-                background: white;
-                border-radius: 15px;
-                padding: 40px;
-                text-align: center;
-            }
-            .back-link {
+            }}
+            .back-link {{
                 display: inline-block;
                 margin: 20px 10px;
                 padding: 10px 20px;
@@ -201,49 +85,59 @@ def search():
                 color: #667eea;
                 text-decoration: none;
                 border-radius: 50px;
-                transition: 0.3s;
-            }
-            .back-link:hover {
-                background: #f0f0f0;
-                transform: translateY(-2px);
-            }
-            h1 {
-                color: white;
+            }}
+            .footer {{
                 text-align: center;
-                margin-bottom: 30px;
-            }
+            }}
         </style>
     </head>
     <body>
         <div class="container">
-            <h1>🔍 查詢結果：「""" + keyword + """」</h1>
+            <h1>🎬 近期上映電影</h1>
+            <div class="update-info">📅 資料更新時間：{lastUpdate}</div>
     """
-    
-    found = False
-    for doc in docs:
-        if keyword in doc.to_dict()["title"]:
-            found = True
-            html += f"""
-            <div class="result-card">
-                <h3>🎬 {doc.to_dict()['title']}</h3>
-                <p>📖 影片介紹：<a href="{doc.to_dict()['hyperlink']}" target="_blank">點我觀看</a></p>
-                <p>⏱️ 片長：{doc.to_dict()['showLength']} 分鐘</p>
-                <p>📅 上映日期：{doc.to_dict()['showDate']}</p>
-            </div>
-            """
-    
-    if not found:
+
+    for item in result:
+        # 海報圖片
+        img_tag = item.find("img")
+        picture = img_tag.get("src") if img_tag else ""
+        
+        # 電影名稱
+        title_tag = item.find("div", class_="filmtitle")
+        title = title_tag.text if title_tag else "未知"
+        
+        # 電影介紹頁
+        a_tag = title_tag.find("a") if title_tag else None
+        hyperlink = "http://www.atmovies.com.tw" + a_tag.get("href") if a_tag else ""
+        
+        # 上映日期與片長
+        runtime_tag = item.find("div", class_="runtime")
+        if runtime_tag:
+            show = runtime_tag.text.replace("上映日期：", "").replace("片長：", "").replace("分", "")
+            showDate = show[0:10] if len(show) >= 10 else "未知"
+            showLength = show[13:] if len(show) > 13 else "未知"
+        else:
+            showDate = "未知"
+            showLength = "未知"
+
         html += f"""
-            <div class="no-result">
-                <h2>❌ 找不到相關電影</h2>
-                <p>請嘗試其他關鍵字</p>
+            <div class="movie-card">
+                <div class="movie-pic">
+                    <img src="{picture}" alt="{title}">
+                </div>
+                <div class="movie-info">
+                    <h2 class="movie-title">🎬 {title}</h2>
+                    <p class="movie-detail">📅 上映日期：{showDate}</p>
+                    <p class="movie-detail">⏱️ 片長：{showLength} 分鐘</p>
+                    <p class="movie-link">🔗 <a href="{hyperlink}" target="_blank">點我看詳細介紹</a></p>
+                </div>
             </div>
         """
-    
+
     html += """
-            <div style="text-align:center;">
+            <div class="footer">
                 <a href="/" class="back-link">🏠 回首頁</a>
-                <a href="/search.html" class="back-link">🔍 重新查詢</a>
+                <a href="/search" class="back-link">🔍 搜尋電影</a>
             </div>
         </div>
     </body>
@@ -253,5 +147,93 @@ def search():
     return html
 
 
-# Vercel 需要這個
+@app.route("/search")
+def search():
+    """即時搜尋電影（不依賴資料庫）"""
+    
+    keyword = request.args.get("keyword", "")
+    
+    if not keyword:
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="UTF-8"><title>搜尋電影</title></head>
+        <body style="text-align:center; padding:50px;">
+            <h1>🔍 請輸入關鍵字</h1>
+            <form method="get" action="/search">
+                <input type="text" name="keyword" placeholder="例如：女" style="padding:10px;width:200px;">
+                <button type="submit" style="padding:10px 20px;">搜尋</button>
+            </form>
+            <br><a href="/">回首頁</a>
+        </body>
+        </html>
+        """
+    
+    # 即時爬蟲並過濾
+    url = "http://www.atmovies.com.tw/movie/next/"
+    Data = requests.get(url, verify=False)
+    Data.encoding = "utf-8"
+    sp = BeautifulSoup(Data.text, "html.parser")
+    result = sp.select(".filmListAllX li")
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>搜尋結果：{keyword}</title>
+    <style>
+        body {{ font-family: Arial; background: #f0f0f0; padding: 40px; }}
+        .container {{ max-width: 800px; margin: 0 auto; }}
+        .result {{ background: white; border-radius: 10px; padding: 15px; margin-bottom: 15px; }}
+        h1 {{ color: #667eea; }}
+        a {{ color: #667eea; }}
+    </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🔍 搜尋「{keyword}」的結果</h1>
+    """
+    
+    found = False
+    for item in result:
+        title_tag = item.find("div", class_="filmtitle")
+        title = title_tag.text if title_tag else ""
+        
+        if keyword in title:
+            found = True
+            a_tag = title_tag.find("a") if title_tag else None
+            hyperlink = "http://www.atmovies.com.tw" + a_tag.get("href") if a_tag else ""
+            
+            runtime_tag = item.find("div", class_="runtime")
+            if runtime_tag:
+                show = runtime_tag.text.replace("上映日期：", "").replace("片長：", "").replace("分", "")
+                showDate = show[0:10] if len(show) >= 10 else "未知"
+                showLength = show[13:] if len(show) > 13 else "未知"
+            else:
+                showDate = "未知"
+                showLength = "未知"
+            
+            html += f"""
+            <div class="result">
+                <h3>🎬 {title}</h3>
+                <p>📅 上映日期：{showDate}</p>
+                <p>⏱️ 片長：{showLength} 分鐘</p>
+                <p>🔗 <a href="{hyperlink}" target="_blank">詳細介紹</a></p>
+            </div>
+            """
+    
+    if not found:
+        html += f"<p>❌ 找不到包含「{keyword}」的電影</p>"
+    
+    html += '<br><a href="/">回首頁</a> | <a href="/search">重新搜尋</a>'
+    html += "</div></body></html>"
+    
+    return html
+
+
+@app.route("/")
+def index():
+    with open("index.html", "r", encoding="utf-8") as f:
+        return f.read()
+
+
 app.debug = True
