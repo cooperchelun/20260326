@@ -16,7 +16,7 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 
-@app.route("/api/movie")
+@app.route("/movie")
 def movie():
     """爬取開眼電影網近期上映電影，寫入 Firestore"""
     
@@ -125,7 +125,7 @@ def movie():
     """
 
 
-@app.route("/api/search")
+@app.route("/search")
 def search():
     """查詢電影（支援關鍵字）"""
     
