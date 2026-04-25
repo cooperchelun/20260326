@@ -161,7 +161,7 @@ def search():
         <body style="text-align:center; padding:50px;">
             <h1>🔍 請輸入關鍵字</h1>
             <form method="get" action="/search">
-                <input type="text" name="keyword" placeholder="例如：女" style="padding:10px;width:200px;">
+                <input type="text" name="keyword" placeholder="例如：超" style="padding:10px;width:200px;">
                 <button type="submit" style="padding:10px 20px;">搜尋</button>
             </form>
             <br><a href="/">回首頁</a>
